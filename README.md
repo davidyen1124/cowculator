@@ -3,15 +3,6 @@
 # COWCULATOR 🐄➗📈
 Because nothing says “leadership” like forecasting burrito budgets with AI.
 
-<p align="center">
-  <a href="https://davidyen1124.github.io/cowculator/"><img src="assets/hero.png" alt="COWCULATOR demo screenshot" width="900"></a>
-  <br/>
-  <a href="https://davidyen1124.github.io/cowculator/"><strong>Live Demo on GitHub Pages</strong></a>
-  ·
-  <a href="https://github.com/davidyen1124/cowculator"><strong>Source on GitHub</strong></a>
-  
-</p>
-
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](#)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](#)
 [![Build](https://img.shields.io/badge/CI-GitHub%20Actions-2088ff?logo=github-actions&logoColor=white)](#)
@@ -36,6 +27,14 @@ Because nothing says “leadership” like forecasting burrito budgets with AI.
 [![Coverage](https://img.shields.io/badge/Coverage-NaN%25-lightgrey.svg)](#)
 
 <sub>Badges are both documentation and personality at this point.</sub>
+
+<p align="center">
+  <a href="https://davidyen1124.github.io/cowculator/"><img src="assets/hero.png" alt="COWCULATOR demo screenshot" width="900"></a>
+  <br/>
+  <a href="https://davidyen1124.github.io/cowculator/"><strong>Live Demo on GitHub Pages</strong></a>
+  ·
+  <a href="https://github.com/davidyen1124/cowculator"><strong>Source on GitHub</strong></a>
+</p>
 
 </div>
 
