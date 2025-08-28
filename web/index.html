@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cowculator 5‑Day Forecast</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        --ink: #0a0a0a;
+        --paper: #fafafa;
+      }
+      html, body { height: 100%; }
+      body { background: var(--paper); color: var(--ink); }
+      .brutal-shadow { box-shadow: 6px 6px 0 #000; }
+      .brutal-press:active { transform: translate(2px, 2px); box-shadow: 4px 4px 0 #000; }
+    </style>
+  </head>
+  <body class="min-h-screen">
+    <main class="max-w-6xl mx-auto px-4 py-8">
+      <header class="mb-8">
+        <div class="flex items-start">
+          <h1 class="text-4xl md:text-5xl font-black tracking-tight uppercase">
+            Cowculator 5‑Day Forecast
+          </h1>
+        </div>
+      </header>
+
+      <section>
+        <div id="calendarMobile" class="md:hidden"></div>
+        <div id="calendarDesktop" class="hidden md:block"></div>
+      </section>
+
+      <section class="mt-10">
+        <div id="errorBox" class="hidden border-4 border-black bg-red-200 brutal-shadow p-4">
+          <div class="font-bold uppercase mb-1">Error</div>
+          <div class="text-sm" id="errorText"></div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      function toLocalISODate(d = new Date()) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+      }
+
+      function fmtCurrency(v, digits = 0) {
+        try {
+          return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', minimumFractionDigits: digits, maximumFractionDigits: digits }).format(v);
+        } catch (e) {
+          return `$${Number(v).toFixed(digits)}`;
+        }
+      }
+
+      function fmtNumber(v, digits = 1) {
+        return new Intl.NumberFormat(undefined, { maximumFractionDigits: digits }).format(v);
+      }
+
+      function setError(msg) {
+        const box = document.getElementById('errorBox');
+        const text = document.getElementById('errorText');
+        text.textContent = msg;
+        box.classList.remove('hidden');
+      }
+
+      function clearError() {
+        const box = document.getElementById('errorBox');
+        box.classList.add('hidden');
+      }
+
+      function renderCalendar(items) {
+        const calD = document.getElementById('calendarDesktop');
+        const calM = document.getElementById('calendarMobile');
+        calD.innerHTML = '';
+        calM.innerHTML = '';
+        if (!items || !items.length) return;
+
+        // Desktop grid
+        const headers = document.createElement('div');
+        headers.className = 'grid grid-cols-5 gap-3 mb-3';
+        ['Mon','Tue','Wed','Thu','Fri'].forEach((n) => {
+          const h = document.createElement('div');
+          h.className = 'text-xs font-bold uppercase tracking-wide';
+          h.textContent = n;
+          headers.appendChild(h);
+        });
+        calD.appendChild(headers);
+
+        const grid = document.createElement('div');
+        grid.className = 'grid grid-rows-2 grid-cols-5 gap-3';
+        const cells = new Array(10).fill(null);
+        let col = Math.min(4, Math.max(0, items[0].dow));
+        let row = 0;
+        items.forEach((it) => {
+          const idx = row * 5 + col;
+          cells[idx] = it;
+          col += 1;
+          if (col >= 5) { col = 0; row += 1; }
+        });
+        for (let i = 0; i < cells.length; i++) {
+          const it = cells[i];
+          const cell = document.createElement('div');
+          if (!it) {
+            cell.className = 'min-h-[8rem] p-3 border-4 border-black bg-gray-100 text-gray-400 brutal-shadow';
+            grid.appendChild(cell);
+            continue;
+          }
+          cell.className = 'min-h-[8rem] p-3 border-4 border-black bg-white brutal-shadow flex flex-col gap-2';
+          const title = document.createElement('div');
+          title.className = 'flex items-baseline justify-between';
+          title.innerHTML = `
+            <div class=\"font-black uppercase\">${it.weekday_name}</div>
+            <div class=\"font-mono text-xs\">${it.date}</div>
+          `;
+          const cost = document.createElement('div');
+          cost.className = 'text-2xl md:text-3xl font-extrabold tracking-tight';
+          cost.textContent = fmtCurrency(it.predicted_cost, 0);
+          const meta = document.createElement('div');
+          meta.className = 'grid grid-cols-2 gap-2 text-xs';
+          meta.innerHTML = `
+            <div class=\"p-1 border-2 border-black bg-yellow-200\"><span class=\"font-semibold\">Headcount</span> <span class=\"font-mono\">${fmtNumber(it.avg_headcount, 1)}</span></div>
+            <div class=\"p-1 border-2 border-black bg-green-200\"><span class=\"font-semibold\">$/person</span> <span class=\"font-mono\">${fmtCurrency(it.avg_price_pp, 2)}</span></div>
+          `;
+          cell.appendChild(title);
+          cell.appendChild(cost);
+          cell.appendChild(meta);
+          grid.appendChild(cell);
+        }
+        calD.appendChild(grid);
+
+        // Mobile stacked list
+        const list = document.createElement('div');
+        list.className = 'flex flex-col gap-3';
+        items.forEach((it) => {
+          const card = document.createElement('div');
+          card.className = 'p-3 border-4 border-black bg-white brutal-shadow flex flex-col gap-2';
+          const title = document.createElement('div');
+          title.className = 'flex items-baseline justify-between';
+          title.innerHTML = `
+            <div class=\"font-black uppercase\">${it.weekday_name}</div>
+            <div class=\"font-mono text-xs\">${it.date}</div>
+          `;
+          const cost = document.createElement('div');
+          cost.className = 'text-2xl font-extrabold tracking-tight';
+          cost.textContent = fmtCurrency(it.predicted_cost, 0);
+          const meta = document.createElement('div');
+          meta.className = 'grid grid-cols-2 gap-2 text-xs';
+          meta.innerHTML = `
+            <div class=\"p-1 border-2 border-black bg-yellow-200\"><span class=\"font-semibold\">Headcount</span> <span class=\"font-mono\">${fmtNumber(it.avg_headcount, 1)}</span></div>
+            <div class=\"p-1 border-2 border-black bg-green-200\"><span class=\"font-semibold\">$/person</span> <span class=\"font-mono\">${fmtCurrency(it.avg_price_pp, 2)}</span></div>
+          `;
+          card.appendChild(title);
+          card.appendChild(cost);
+          card.appendChild(meta);
+          list.appendChild(card);
+        });
+        calM.appendChild(list);
+      }
+
+      // --- Client-side forecast (no API) ---
+      function weekOfYear(d) {
+        const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+        const dayNum = (date.getUTCDay() + 6) % 7;
+        date.setUTCDate(date.getUTCDate() - dayNum + 3);
+        const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
+        const diff = date - firstThursday;
+        return 1 + Math.round(diff / (7 * 24 * 3600 * 1000));
+      }
+      function avg(arr) { return arr.reduce((a, b) => a + b, 0) / arr.length; }
+      function toISO(d) { return new Date(d).toISOString().slice(0, 10); }
+
+      function gbrPredict(model, featsObj) {
+        const feats = [
+          featsObj.cal_dow,
+          featsObj.cal_day,
+          featsObj.cal_weekofyear,
+          featsObj.cal_month,
+          featsObj.cal_quarter,
+          featsObj.cal_trend,
+          featsObj.y_lag1,
+          featsObj.y_lag7,
+          featsObj.y_roll7,
+          featsObj.y_roll28,
+        ];
+        let y = model.base_value || 0;
+        const lr = model.learning_rate || 1.0;
+        for (const tree of model.trees) y += lr * treePredict(tree, feats);
+        return y;
+      }
+      function treePredict(tree, feats) {
+        const nodes = tree.nodes;
+        let i = 0;
+        while (true) {
+          const n = nodes[i];
+          if (n.f === -2) return n.v; // leaf
+          i = feats[n.f] <= n.t ? n.l : n.r;
+        }
+      }
+      function buildFeatures(day, histVals, trend0) {
+        const dts = new Date(day);
+        const cal_trend = Math.floor((dts - trend0) / (24 * 3600 * 1000));
+        const dow = dts.getUTCDay() === 0 ? 6 : dts.getUTCDay() - 1;
+        const features = {
+          cal_dow: dow,
+          cal_day: dts.getUTCDate(),
+          cal_weekofyear: weekOfYear(dts),
+          cal_month: dts.getUTCMonth() + 1,
+          cal_quarter: Math.floor(dts.getUTCMonth() / 3) + 1,
+          cal_trend,
+        };
+        const y_lag1 = histVals[histVals.length - 1];
+        const y_lag7 = histVals[Math.max(0, histVals.length - 5)];
+        const last7 = histVals.slice(-7);
+        const last28 = histVals.slice(-28);
+        features.y_lag1 = y_lag1;
+        features.y_lag7 = y_lag7;
+        features.y_roll7 = avg(last7);
+        features.y_roll28 = avg(last28.length ? last28 : histVals);
+        return features;
+      }
+      function displayAveragesForDow(stats, dow) {
+        const row = stats[String(dow)] || stats[dow];
+        if (!row) {
+          const values = Object.values(stats);
+          return [avg(values.map(x=>x.avg_headcount)), avg(values.map(x=>x.avg_price_pp))];
+        }
+        return [row.avg_headcount, row.avg_price_pp];
+      }
+      function forecastNextN(start, n, businessDays, bundle) {
+        const { model, history, weekday_stats } = bundle;
+        const histVals = history.y.slice();
+        const trend0 = new Date(history.trend0 + 'T00:00:00Z');
+        const out = [];
+        let step = 1;
+        while (out.length < n) {
+          const day = new Date(Date.UTC(start.getFullYear(), start.getMonth(), start.getDate()));
+          day.setUTCDate(day.getUTCDate() + step);
+          const dow = day.getUTCDay() === 0 ? 6 : day.getUTCDay() - 1;
+          if (businessDays && dow >= 5) { step += 1; continue; }
+          const [avgHead, avgPrice] = displayAveragesForDow(weekday_stats, dow);
+          const feats = buildFeatures(day, histVals, trend0);
+          const pred = gbrPredict(model, feats);
+          histVals.push(pred);
+          out.push({ date: toISO(day), dow, weekday_name: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][dow], avg_headcount: avgHead, avg_price_pp: avgPrice, predicted_cost: pred });
+          step += 1;
+        }
+        return out;
+      }
+
+      async function loadForecast() {
+        clearError();
+        const base = new Date();
+        const baseStr = toLocalISODate(base);
+        try {
+          const res = await fetch('edge_bundle.json');
+          if (!res.ok) {
+            const txt = await res.text().catch(() => '');
+            throw new Error(`Bundle ${res.status}: ${txt || res.statusText}`);
+          }
+          const bundle = await res.json();
+          const data = forecastNextN(new Date(baseStr + 'T00:00:00Z'), 5, true, bundle);
+          renderCalendar(data);
+        } catch (err) {
+          console.error(err);
+          setError(err.message || String(err));
+        }
+      }
+
+      window.addEventListener('load', loadForecast);
+    </script>
+  </body>
+  </html>

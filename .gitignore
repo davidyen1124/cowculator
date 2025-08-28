@@ -1,0 +1,32 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+venv/
+
+# Generated data/artifacts
+data/
+artifacts/
+
+# OS cruft
+.DS_Store
+
+# Local environment/config
+.python-version
+.env
+.env.*
+.vscode/
+.idea/
+
+# Tool caches and test outputs
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage*
+.ipynb_checkpoints/

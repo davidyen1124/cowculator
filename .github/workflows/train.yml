@@ -1,0 +1,61 @@
+name: Train Model
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: train-${{ github.ref }}
+      cancel-in-progress: true
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # allow pushing commits
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Install runtime deps (mirrors pyproject.toml)
+          pip install httpx pandas pyarrow scikit-learn python-dateutil
+
+      - name: Fetch data (limit=100)
+        run: |
+          python main.py fetch --limit 100 --max-pages 100
+
+      - name: Train model
+        run: |
+          python main.py train
+
+      - name: Export edge bundle
+        run: |
+          python main.py export-edge --out web/edge_bundle.json
+
+      - name: Commit updated bundle to branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add web/edge_bundle.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "chore(ci): update edge bundle [skip ci]"
+            git push
+          fi
