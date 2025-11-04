@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
+from argparse import Namespace
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Tuple, cast
@@ -17,8 +20,17 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.tree import _tree
 
+# Configure logging
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+
 API_URL = "https://www.catercow.com/cpi/v2/public/order_surveys"
 
+# API headers required for CaterCow public API access
+# Note: User-agent mimics browser to meet API requirements
 API_HEADERS = {
     "accept": "*/*",
     "accept-language": "en-US,en;q=0.9",
@@ -42,18 +54,69 @@ API_HEADERS = {
 }
 
 
+def _validate_api_response(data: Dict[str, Any]) -> None:
+    """Validate that API response has expected structure.
+
+    Args:
+        data: API response dictionary
+
+    Raises:
+        ValueError: If response structure is invalid
+    """
+    if not isinstance(data, dict):
+        raise ValueError(f"API response must be a dict, got {type(data)}")
+
+    if "records" not in data:
+        raise ValueError("API response missing 'records' field")
+
+    if not isinstance(data["records"], list):
+        raise ValueError(f"API 'records' must be a list, got {type(data['records'])}")
+
+    if "meta" not in data:
+        logger.warning("API response missing 'meta' field")
+
+
 def _fetch_page(client: httpx.Client, limit: int, offset: int) -> Dict[str, Any]:
+    """Fetch a single page of order survey records from the CaterCow API.
+
+    Args:
+        client: HTTP client for making requests
+        limit: Maximum number of records to fetch per page
+        offset: Starting position for pagination
+
+    Returns:
+        JSON response containing records and metadata
+
+    Raises:
+        httpx.HTTPStatusError: If the API request fails
+        ValueError: If response structure is invalid
+    """
+    team_id = os.environ.get("CATERCOW_TEAM_ID", "8728D1C81AF4129A3D1E48683F3B59E47A692DC6")
     params = {
-        "team_id": "8728D1C81AF4129A3D1E48683F3B59E47A692DC6",
+        "team_id": team_id,
         "limit": limit,
         "offset": offset,
     }
     r = client.get(API_URL, headers=API_HEADERS, params=params, timeout=30)
     r.raise_for_status()
-    return r.json()
+    response_data = r.json()
+    _validate_api_response(response_data)
+    return response_data
 
 
 def fetch_all_records(limit: int = 100, max_pages: int = 100) -> List[Dict[str, Any]]:
+    """Fetch all available order survey records from the CaterCow API with pagination.
+
+    Args:
+        limit: Number of records to fetch per page (default: 100)
+        max_pages: Maximum number of pages to fetch as a safety limit (default: 100)
+
+    Returns:
+        List of raw order survey records as dictionaries
+
+    Note:
+        Pagination stops when no more records are available or max_pages is reached.
+    """
     records: List[Dict[str, Any]] = []
     with httpx.Client() as client:
         offset = 0
@@ -81,8 +144,31 @@ def save_jsonl(records: List[Dict[str, Any]], path: Path) -> None:
 
 
 def flatten_records(records: List[Dict[str, Any]]) -> pd.DataFrame:
+    """Transform nested API records into a flat DataFrame suitable for modeling.
+
+    This function denormalizes the nested JSON structure, extracts relevant fields,
+    coerces types, and computes derived columns like estimated_cost.
+
+    Args:
+        records: List of raw order survey records from the API
+
+    Returns:
+        DataFrame with columns: survey_id, order_id, headcount, start_date, dow,
+        package_price, estimated_cost, and other order details
+
+    Note:
+        - Rows with missing headcount, package_price, or start_date are dropped
+        - estimated_cost = total_price (if available) or headcount * package_price
+        - Invalid prices are coerced to NaN
+    """
     rows: List[Dict[str, Any]] = []
+    invalid_records = 0
+
     for r in records:
+        if not isinstance(r, dict):
+            invalid_records += 1
+            continue
+
         order = r.get("order", {}) or {}
         pkg = order.get("package", {}) or {}
         brand = order.get("brand", {}) or {}
@@ -93,14 +179,14 @@ def flatten_records(records: List[Dict[str, Any]]) -> pd.DataFrame:
         price_raw = pkg.get("price")
         try:
             price = float(price_raw) if price_raw is not None else np.nan
-        except Exception:
+        except (ValueError, TypeError):
             price = np.nan
 
         # Prefer total_price from pricing when available
         def _to_float(x: Any) -> float:
             try:
                 return float(x) if x is not None else np.nan
-            except Exception:
+            except (ValueError, TypeError):
                 return np.nan
 
         total_price = _to_float(pricing.get("total_price"))
@@ -145,6 +231,10 @@ def flatten_records(records: List[Dict[str, Any]]) -> pd.DataFrame:
         )
     else:
         df["estimated_cost"] = df["headcount"] * df["package_price"]
+
+    if invalid_records > 0:
+        logger.warning(f"Skipped {invalid_records} invalid records during flattening")
+
     return df
 
 
@@ -246,6 +336,15 @@ def aggregate_daily(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _add_calendar_features(d: pd.Series) -> pd.DataFrame:
+    """Extract calendar-based features from a datetime Series.
+
+    Args:
+        d: Series of pandas Timestamp values
+
+    Returns:
+        DataFrame with columns: date, dow, day, weekofyear, month, quarter, trend
+        where trend is days since the minimum date
+    """
     out = pd.DataFrame(
         {
             "date": d,
@@ -367,7 +466,15 @@ def train_daily_model(
     return model, metrics, hist
 
 
-def fetch_data_cli(args: Any) -> None:
+def fetch_data_cli(args: Namespace) -> None:
+    """CLI command to fetch order survey data from the CaterCow API.
+
+    Args:
+        args: Command-line arguments with attributes:
+            - outdir: Directory to save raw JSON files
+            - limit: Records per page
+            - max_pages: Maximum pages to fetch
+    """
     outdir: Path = args.outdir
     outdir.mkdir(parents=True, exist_ok=True)
     records = fetch_all_records(limit=args.limit, max_pages=args.max_pages)
@@ -376,10 +483,18 @@ def fetch_data_cli(args: Any) -> None:
     with json_path.open("w", encoding="utf-8") as f:
         json.dump({"records": records}, f)
     save_jsonl(records, outdir / "order_surveys_all.jsonl")
-    print(f"Saved {len(records)} records to {json_path}")
+    logger.info(f"Saved {len(records)} records to {json_path}")
 
 
-def train_cli(args: Any) -> None:
+def train_cli(args: Namespace) -> None:
+    """CLI command to process data and train both order-level and daily models.
+
+    Args:
+        args: Command-line arguments with attributes:
+            - raw: Directory containing raw JSON files
+            - processed: Path to save processed parquet file
+            - artifacts: Directory to save trained models and metrics
+    """
     rawdir: Path = args.raw
     raw_json = rawdir / "order_surveys_all.json"
     if not raw_json.exists():
@@ -408,16 +523,22 @@ def train_cli(args: Any) -> None:
         joblib.dump(daily_model, artifacts / "daily_model.joblib")
         daily_hist.to_parquet(artifacts / "daily_history.parquet")
         metrics["daily_model"] = daily_metrics
-    except Exception as e:
+    except (RuntimeError, ValueError) as e:
         metrics["daily_model_error"] = str(e)
 
     with (artifacts / "metrics.json").open("w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
-    print("Training complete:")
-    print(json.dumps(metrics, indent=2))
+    logger.info("Training complete")
+    logger.info(f"Metrics: {json.dumps(metrics, indent=2)}")
 
 
-def predict_next_cli(args: Any) -> None:
+def predict_next_cli(args: Namespace) -> None:
+    """CLI command to predict tomorrow's catering cost using historical weekday averages.
+
+    Args:
+        args: Command-line arguments with attributes:
+            - artifacts: Directory containing trained model and weekday stats
+    """
     artifacts: Path = args.artifacts
     model_path = artifacts / "model.joblib"
     weekday_path = artifacts / "weekday_stats.parquet"
@@ -460,11 +581,26 @@ def predict_next_cli(args: Any) -> None:
         "avg_price_pp": avg_price,
         "predicted_cost": pred,
     }
+    logger.info(f"Prediction result: {json.dumps(result, indent=2)}")
     print(json.dumps(result, indent=2))
 
 
 # ---------- Export for browser (edge) inference ----------
 def _export_gbr_trees(model: GradientBoostingRegressor) -> Dict[str, Any]:
+    """Serialize a GradientBoostingRegressor model to JSON for browser inference.
+
+    Recursively traverses the tree ensemble and exports node structure
+    including features, thresholds, children, and values.
+
+    Args:
+        model: Trained GradientBoostingRegressor instance
+
+    Returns:
+        Dictionary with keys:
+            - base_value: Initial prediction value
+            - learning_rate: Model's learning rate
+            - trees: List of tree structures with nodes
+    """
     trees: List[Dict[str, Any]] = []
     # estimators_ shape: (n_estimators, 1) for regression
     for i in range(model.estimators_.shape[0]):
@@ -486,7 +622,7 @@ def _export_gbr_trees(model: GradientBoostingRegressor) -> Dict[str, Any]:
     try:
         # DummyRegressor stores [[value]]
         base_value = float(model.init_.constant_[0][0])  # type: ignore[attr-defined]
-    except Exception:
+    except (AttributeError, IndexError, TypeError):
         base_value = 0.0
     return {
         "base_value": base_value,
@@ -495,7 +631,14 @@ def _export_gbr_trees(model: GradientBoostingRegressor) -> Dict[str, Any]:
     }
 
 
-def export_edge_cli(args: Any) -> None:
+def export_edge_cli(args: Namespace) -> None:
+    """CLI command to export trained model as JSON bundle for browser inference.
+
+    Args:
+        args: Command-line arguments with attributes:
+            - artifacts: Directory containing trained models
+            - out: Output path for the JSON bundle
+    """
     artifacts: Path = args.artifacts
     model_path = artifacts / "daily_model.joblib"
     hist_path = artifacts / "daily_history.parquet"
@@ -537,7 +680,7 @@ def export_edge_cli(args: Any) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", encoding="utf-8") as f:
         json.dump(bundle, f)
-    print(f"Wrote edge bundle to {out_path}")
+    logger.info(f"Wrote edge bundle to {out_path}")
 
 __all__ = [
     "fetch_data_cli",
