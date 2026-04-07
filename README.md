@@ -40,6 +40,8 @@ Because nothing says “leadership” like forecasting burrito budgets with AI.
 
 Stop Scrolling: I built an AI that predicts your company’s catering costs while you sleep. It’s edge‑ready, vibe‑forward, and CFO‑compatible. This one weird trick could save ~$0–$1,000,000 depending on how loud the demo speakers are.
 
+> Disclaimer for the extremely online: the live demo currently runs on a frozen snapshot. As of April 6, 2026, the upstream CaterCow survey feed for this team had not posted anything newer than January 29, 2026, so these predictions are historical cosplay, not fresh ops truth.
+
 TL;DR for Executives
 
 - Downloads CaterCow order survey data, turns it into grown‑up tables, and trains not one but TWO models.
